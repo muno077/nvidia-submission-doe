@@ -1,0 +1,19 @@
+# Secrets: NEVER commit these (API keys, passwords)
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+__pycache__/
+*.pyc
+venv/
+.venv/
+dist/
+build/
+.next/
+
+# Editor / OS junk
+.DS_Store
+.vscode/
+.idea/
