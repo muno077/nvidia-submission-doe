@@ -1,0 +1,637 @@
+[
+ {
+  "n": 1,
+  "code": "import pandas as pd\nimport numpy as np\n\n\ndef pump_failure(f):\n    \"Pump in fault status (2) is failed; running (1) is not failed; stopped (0) is unknown.\"\n    result = (f.pump_status == 2)\n    result[f.pump_status == 0] = np.nan\n    return result\n\n\ndef pipeline_leak(f):\n    \"Pipeline receive flow significantly lower than pump flow while pump runs, indicating leak.\"\n    running = f.pump_status == 1\n    signal = (f.pump_flow_bpd - f.pipeline_receive_flow_bpd).where(running)\n    median_signal = signal.rolling(6, min_periods=6).median()\n    result = (median_signal > f.max_flow_bpd * 0.05).where(running)\n    return result\n\n\ndef pump_degradation(f):\n    \"Pump flow gradually declines while running, indicating wear.\"\n    running = f.pump_status == 1\n    baseline = f.pump_flow_bpd.rolling(48, min_periods=48).median()\n    current = f.pump_flow_bpd.rolling(6, min_periods=6).median()\n    comparison = (current < baseline - f.max_flow_bpd * 0.1)\n    result = comparison.where(running)\n    return result\n",
+  "train": {
+   "f1": 0.0,
+   "precision": 0.0,
+   "recall": 0.0,
+   "found": 0,
+   "labelled": 12,
+   "false_alarms": 3,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 3,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T15:15:00Z",
+     "end": "2026-10-06T10:00:00Z"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S1_PIPELINE_B",
+     "onset": "2026-10-09T14:55:00Z",
+     "end": "2026-10-10T08:00:00Z"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S2_PIPELINE_C",
+     "onset": "2026-10-09T16:25:00Z",
+     "end": "2026-10-10T09:30:00Z"
+    }
+   ]
+  },
+  "errors": {
+   "pump_failure": "TypeError: Invalid value 'nan' for dtype 'bool'"
+  }
+ },
+ {
+  "n": 2,
+  "code": "import pandas as pd\nimport numpy as np\n\n\ndef pump_failure(f):\n    \"Pump is in fault status (2); returns NaN when the pump is stopped.\"\n    result = (f.pump_status == 2).astype(\"boolean\")\n    result[f.pump_status == 0] = pd.NA\n    return result\n\n\ndef pipeline_leak(f):\n    \"Pipeline receive flow significantly lower than pump flow while the pump runs.\"\n    running = f.pump_status == 1\n    diff = (f.pump_flow_bpd - f.pipeline_receive_flow_bpd).where(running)\n    # Flag when the drop is at least 7\u202f% of the facility\u2019s max flow\n    threshold = f.max_flow_bpd * 0.07\n    candidate = diff > threshold\n    # Require the condition to last at least three consecutive 5\u2011min steps (15\u202fmin)\n    leak = candidate.rolling(3, min_periods=3).max()\n    # No signal when the pump is not running\n    leak = leak.where(running)\n    return leak.astype(\"boolean\")\n\n\ndef pump_degradation(f):\n    \"Pump flow gradually declines while running, indicating wear.\"\n    running = f.pump_status == 1\n    # 6\u2011step (30\u202fmin) rolling median of current flow\n    current = f.pump_flow_bpd.rolling(6, min_periods=6).median()\n    # 48\u2011step (4\u202fhr) rolling median as the recent baseline\n    baseline = f.pump_flow_bpd.rolling(48, min_periods=48).median()\n    # Degrade when current flow is at least 7\u202f% below baseline\n    degrade = current < baseline - f.max_flow_bpd * 0.07\n    # Require the condition to persist for at least two consecutive windows (~1\u202fh)\n    degrade = degrade.rolling(2, min_periods=2).max()\n    # No signal when the pump is stopped\n    degrade = degrade.where(running)\n    return degrade.astype(\"boolean\")\n",
+  "train": {
+   "f1": 0.571,
+   "precision": 0.667,
+   "recall": 0.5,
+   "found": 6,
+   "labelled": 12,
+   "false_alarms": 3,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 6,
+     "false_alarms": 0,
+     "median_onset_error_min": 0
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 3,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S3_PUMP_A",
+     "onset": "2026-10-07T08:00:00Z",
+     "end": "2026-10-08T20:00:00Z"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T20:30:00Z",
+     "end": "2026-10-06T10:00:00Z"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S1_PIPELINE_B",
+     "onset": "2026-10-09T16:00:00Z",
+     "end": "2026-10-10T08:00:00Z"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S2_PIPELINE_C",
+     "onset": "2026-10-09T21:15:00Z",
+     "end": "2026-10-10T09:30:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ },
+ {
+  "n": 3,
+  "code": "import pandas as pd\nimport numpy as np\n\n\ndef pump_failure(f):\n    \"Pump is in fault status (2); returns NaN when the pump is stopped.\"\n    result = (f.pump_status == 2).astype(\"boolean\")\n    result[f.pump_status == 0] = pd.NA\n    return result\n\n\ndef pipeline_leak(f):\n    \"Pipeline receive flow significantly lower than pump flow while the pump runs, indicating a leak.\"\n    running = f.pump_status == 1\n    diff = (f.pump_flow_bpd - f.pipeline_receive_flow_bpd).where(running)\n    # Flag when the drop is at least 10\u202f% of the facility\u2019s maximum flow\n    threshold = f.max_flow_bpd * 0.10\n    candidate = diff > threshold\n    # Require the condition to persist for at least 12 consecutive 5\u2011min steps (1\u202fh)\n    # to suppress short spikes that caused false alarms.\n    leak = candidate.rolling(12, min_periods=12).max()\n    # No signal when the pump is not running\n    leak = leak.where(running)\n    return leak.astype(\"boolean\")\n\n\ndef pump_degradation(f):\n    \"Pump flow gradually declines while running, indicating wear.\"\n    running = f.pump_status == 1\n    # 6\u2011step (30\u202fmin) rolling median of current flow\n    current = f.pump_flow_bpd.rolling(6, min_periods=6).median()\n    # 48\u2011step (4\u202fhr) rolling median as the recent baseline\n    baseline = f.pump_flow_bpd.rolling(48, min_periods=48).median()\n    # Degrade when current flow is at least 5\u202f% below the baseline\n    degrade = current < baseline - f.max_flow_bpd * 0.05\n    # Require the condition to last for at least 12 consecutive steps (1\u202fh)\n    degrade = degrade.rolling(12, min_periods=12).max()\n    # No signal when the pump is stopped\n    degrade = degrade.where(running)\n    return degrade.astype(\"boolean\")\n",
+  "train": {
+   "f1": 0.571,
+   "precision": 0.667,
+   "recall": 0.5,
+   "found": 6,
+   "labelled": 12,
+   "false_alarms": 3,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 6,
+     "false_alarms": 0,
+     "median_onset_error_min": 0
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 3,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S3_PUMP_A",
+     "onset": "2026-10-07T08:00:00Z",
+     "end": "2026-10-08T20:00:00Z"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T23:00:00Z",
+     "end": "2026-10-06T10:00:00Z"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S2_PIPELINE_C",
+     "onset": "2026-10-10T00:00:00Z",
+     "end": "2026-10-10T09:30:00Z"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S1_PIPELINE_B",
+     "onset": "2026-10-10T00:40:00Z",
+     "end": "2026-10-10T08:00:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ },
+ {
+  "n": 4,
+  "code": "import pandas as pd\nimport numpy as np\n\n\ndef pump_failure(f):\n    \"Pump is in fault status (2); returns NaN when the pump is stopped.\"\n    result = (f.pump_status == 2).astype(\"boolean\")\n    result[f.pump_status == 0] = pd.NA\n    return result\n\n\ndef pipeline_leak(f):\n    \"Pipeline receive flow significantly lower than pump flow while the pump runs, indicating a leak.\"\n    running = f.pump_status == 1\n    diff = (f.pump_flow_bpd - f.pipeline_receive_flow_bpd).where(running)\n    # Flag when the drop is at least 5\u202f% of the facility\u2019s maximum flow\n    threshold = f.max_flow_bpd * 0.05\n    candidate = diff > threshold\n    # Require the condition to persist for at least 12\u202fhours (144 five\u2011min steps)\n    # to suppress short spikes that caused false alarms while still catching\n    # the longer genuine leaks.\n    leak = candidate.rolling(144, min_periods=144).max()\n    # No signal when the pump is not running\n    leak = leak.where(running)\n    return leak.astype(\"boolean\")\n\n\ndef pump_degradation(f):\n    \"Pump flow gradually declines while running, indicating wear.\"\n    running = f.pump_status == 1\n    # 6\u2011step (30\u202fmin) rolling median of current flow\n    current = f.pump_flow_bpd.rolling(6, min_periods=6).median()\n    # 48\u2011step (4\u202fhr) rolling median as the recent baseline\n    baseline = f.pump_flow_bpd.rolling(48, min_periods=48).median()\n    # Degrade when current flow is at least 3\u202f% below the baseline\n    degrade = current < baseline - f.max_flow_bpd * 0.03\n    # Require the condition to last for at least 48 consecutive steps (4\u202fh)\n    degrade = degrade.rolling(48, min_periods=48).max()\n    # No signal when the pump is stopped\n    degrade = degrade.where(running)\n    return degrade.astype(\"boolean\")\n",
+  "train": {
+   "f1": 0.2,
+   "precision": 0.114,
+   "recall": 0.833,
+   "found": 10,
+   "labelled": 12,
+   "false_alarms": 78,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 6,
+     "false_alarms": 0,
+     "median_onset_error_min": 0
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 1,
+     "false_alarms": 2,
+     "median_onset_error_min": 150
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 3,
+     "false_alarms": 76,
+     "median_onset_error_min": 20
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S1_PIPELINE_B",
+     "onset": "2026-10-09T04:00:00Z",
+     "end": "2026-10-10T02:00:00Z"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pump_degradation",
+     "asset": "S3_PUMP_B",
+     "onset": "2026-10-05T07:00:00Z",
+     "end": "2026-10-05T08:25:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T08:30:00Z",
+     "end": "2026-10-05T10:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-05T10:20:00Z",
+     "end": "2026-10-05T11:55:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_A",
+     "onset": "2026-10-05T11:00:00Z",
+     "end": "2026-10-05T12:05:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ },
+ {
+  "n": 5,
+  "code": "import pandas as pd\nimport numpy as np\n\n\ndef pump_failure(f):\n    \"Pump is in fault status (2); returns NaN when the pump is stopped.\"\n    result = (f.pump_status == 2).astype(\"boolean\")\n    result[f.pump_status == 0] = pd.NA\n    return result\n\n\ndef pipeline_leak(f):\n    \"Pipeline receive flow significantly lower than pump flow while the pump runs, indicating a leak.\"\n    running = f.pump_status == 1\n    diff = (f.pump_flow_bpd - f.pipeline_receive_flow_bpd).where(running)\n    # Flag when the pump flow exceeds pipeline receive flow by at least 5\u202f% of max flow capacity\n    threshold = f.max_flow_bpd * 0.05\n    candidate = diff > threshold\n    # Require at least 15\u202fminutes (3 five\u2011min steps) of sustained drop to suppress isolated spikes\n    leak = candidate.rolling(3, min_periods=3).max()\n    leak = leak.where(running)\n    return leak.astype(\"boolean\")\n\n\ndef pump_degradation(f):\n    \"Pump flow gradually declines while running, indicating wear.\"\n    running = f.pump_status == 1\n    # 48\u2011step (4\u202fhr) rolling median as recent baseline\n    baseline = f.pump_flow_bpd.rolling(48, min_periods=48).median()\n    # 6\u2011step (30\u202fmin) rolling median of current flow\n    current = f.pump_flow_bpd.rolling(6, min_periods=6).median()\n    # Degrade when current flow is at least 4\u202f% below the recent baseline\n    degrade = current < baseline - f.max_flow_bpd * 0.04\n    # Require persistence of at least 12 steps (1\u202fh) to suppress the short ~1\u202fh false\u2011alarm events\n    degrade = degrade.rolling(12, min_periods=12).max()\n    degrade = degrade.where(running)\n    return degrade.astype(\"boolean\")\n",
+  "train": {
+   "f1": 0.727,
+   "precision": 0.8,
+   "recall": 0.667,
+   "found": 8,
+   "labelled": 12,
+   "false_alarms": 2,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 6,
+     "false_alarms": 0,
+     "median_onset_error_min": 0
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 2,
+     "false_alarms": 2,
+     "median_onset_error_min": 180
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S3_PUMP_A",
+     "onset": "2026-10-07T08:00:00Z",
+     "end": "2026-10-08T20:00:00Z"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S1_PIPELINE_B",
+     "onset": "2026-10-09T04:00:00Z",
+     "end": "2026-10-10T02:00:00Z"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T12:10:00Z",
+     "end": "2026-10-06T10:00:00Z"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S1_PIPELINE_B",
+     "onset": "2026-10-09T14:30:00Z",
+     "end": "2026-10-10T08:00:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ },
+ {
+  "n": 6,
+  "code": "import pandas as pd\nimport numpy as np\n\n\ndef pump_failure(f):\n    \"Alarm if pump_status==2 for 3 consecutive steps, or pump_flow==0 for 3 steps with tank level rising (inflow>0). NaN when pump is off.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    eval_mask = f.pump_status != 0\n    cond_a = (f.pump_status == 2).rolling(3, min_periods=3).all()\n    cond_b_flow = (f.pump_flow_bpd == 0).rolling(3, min_periods=3).all()\n    cond_b_tank = (f.tank_level_pct.diff() > 0).rolling(3, min_periods=3).all()\n    cond_b = cond_b_flow & cond_b_tank\n    combined = cond_a | cond_b\n    result[eval_mask & combined] = True\n    result[eval_mask & ~combined] = False\n    return result\n\n\ndef pipeline_leak(f):\n    \"Alarm if pipeline pressure well below disposal setpoint and flow imbalance indicates leak, while pump runs. NaN when pump is off.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask = f.pump_status == 1\n    cond_pressure = f.pipeline_pressure_psi < f.disposal_psi * 0.90\n    cond_flow = (f.pump_flow_bpd - f.pipeline_receive_flow_bpd) > f.max_flow_bpd * 0.05\n    cond = cond_pressure & cond_flow\n    alarm = cond.rolling(3, min_periods=3).all()\n    result[mask & alarm] = True\n    result[mask & ~alarm] = False\n    return result\n\n\ndef pump_degradation(f):\n    \"Alarm if pump flow declines 2.5% below 8h baseline for 1h persistence. NaN when pump is not running.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask = f.pump_status == 1\n    ratio = f.pump_flow_bpd / f.max_flow_bpd\n    rolling_48 = ratio.rolling(48, min_periods=48).median()\n    baseline = ratio.rolling(96, min_periods=96).median()\n    degrade_signal = rolling_48 < baseline - 0.025\n    alarm = degrade_signal.rolling(12, min_periods=12).all()\n    result[mask & alarm] = True\n    result[mask & ~alarm] = False\n    return result\n",
+  "train": {
+   "f1": 0.0,
+   "precision": 0.0,
+   "recall": 0.0,
+   "found": 0,
+   "labelled": 12,
+   "false_alarms": 0,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z"
+    }
+   ],
+   "false_alarm_examples": []
+  },
+  "errors": {
+   "pump_failure": "AttributeError: 'Rolling' object has no attribute 'all'",
+   "pipeline_leak": "AttributeError: 'Rolling' object has no attribute 'all'",
+   "pump_degradation": "AttributeError: 'Rolling' object has no attribute 'all'"
+  }
+ },
+ {
+  "n": 7,
+  "code": "import pandas as pd\nimport numpy as np\n\n\ndef pump_failure(f):\n    \"Alarm if pump_status==2 for 3 consecutive steps, or pump_flow==0 for 3 steps with tank level rising; NaN when pump is off.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask = f.pump_status != 0\n\n    # condition (a): pump_status==2 sustained 3 steps\n    cond_a = (f.pump_status == 2) \\\n             .rolling(3, min_periods=3) \\\n             .apply(lambda x: x.all(), raw=False) \\\n             .fillna(False)\n\n    # condition (b): pump_flow==0 sustained 3 steps AND tank level rising\n    cond_b_flow = (f.pump_flow_bpd == 0) \\\n                  .rolling(3, min_periods=3) \\\n                  .apply(lambda x: x.all(), raw=False) \\\n                  .fillna(False)\n    cond_b_tank = (f.tank_level_pct.diff() > 0) \\\n                  .rolling(3, min_periods=3) \\\n                  .apply(lambda x: x.all(), raw=False) \\\n                  .fillna(False)\n    cond_b = cond_b_flow & cond_b_tank\n\n    combined = cond_a | cond_b\n    result[mask & combined] = True\n    return result\n\n\ndef pipeline_leak(f):\n    \"Alarm if pipeline pressure well below disposal setpoint and flow imbalance indicates leak while pump runs; NaN when pump is off.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask = f.pump_status == 1\n\n    cond_pressure = f.pipeline_pressure_psi < f.disposal_psi * 0.90\n    cond_flow = (f.pump_flow_bpd - f.pipeline_receive_flow_bpd) > f.max_flow_bpd * 0.05\n    cond = cond_pressure & cond_flow\n\n    # persistence of at least 3 consecutive 5\u2011min steps (15\u202fmin)\n    alarm = cond \\\n            .rolling(3, min_periods=3) \\\n            .apply(lambda x: x.all(), raw=False) \\\n            .fillna(False)\n\n    result[mask & alarm] = True\n    return result\n\n\ndef pump_degradation(f):\n    \"Alarm if pump flow declines 2.5\u202f% below 8\u2011h baseline for 1\u2011h persistence; NaN when pump is not running.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask = f.pump_status == 1\n\n    ratio = f.pump_flow_bpd / f.max_flow_bpd\n    # 96\u2011step (8\u202fh) rolling baseline median\n    baseline = ratio.rolling(96, min_periods=96).median()\n    # 48\u2011step (4\u202fh) rolling median of current flow ratio\n    rolling_48 = ratio.rolling(48, min_periods=48).median()\n\n    degrade_signal = (rolling_48 < baseline - 0.025).fillna(False)\n\n    # persistence of at least 12 consecutive 5\u2011min steps (1\u202fh)\n    alarm = degrade_signal \\\n            .rolling(12, min_periods=12) \\\n            .apply(lambda x: x.all(), raw=False) \\\n            .fillna(False)\n\n    result[mask & alarm] = True\n    return result\n",
+  "train": {
+   "f1": 0.0,
+   "precision": 0.0,
+   "recall": 0.0,
+   "found": 0,
+   "labelled": 12,
+   "false_alarms": 0,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z"
+    }
+   ],
+   "false_alarm_examples": []
+  },
+  "errors": {
+   "pump_failure": "TypeError: unsupported operand type(s) for &: 'float' and 'float'"
+  }
+ },
+ {
+  "n": 8,
+  "code": "import pandas as pd\nimport numpy as np\n\n\ndef pump_failure(f):\n    \"Alarm if pump_status==2 for 3 consecutive steps, or pump_flow==0 for 3 steps with tank level rising; NaN when pump is off.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask_running = (f.pump_status != 0).fillna(False)\n\n    # condition (a): pump_status==2 sustained 3 steps\n    cond_a = ((f.pump_status == 2).fillna(False)\n              .rolling(3, min_periods=3)\n              .all()\n              .fillna(False))\n\n    # condition (b): pump_flow==0 sustained 3 steps AND tank level rising 3 steps\n    cond_b_flow = ((f.pump_flow_bpd == 0).fillna(False)\n                   .rolling(3, min_periods=3)\n                   .all()\n                   .fillna(False))\n    cond_b_tank = ((f.tank_level_pct.diff() > 0).fillna(False)\n                   .rolling(3, min_periods=3)\n                   .all()\n                   .fillna(False))\n    cond_b = cond_b_flow & cond_b_tank\n\n    combined = cond_a | cond_b\n    result[mask_running & combined] = True\n    return result\n\n\ndef pipeline_leak(f):\n    \"Alarm if pipeline pressure well below disposal setpoint and flow imbalance indicates leak while pump runs; NaN when pump is off.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask = (f.pump_status == 1).fillna(False)\n\n    cond_pressure = (f.pipeline_pressure_psi < f.disposal_psi * 0.90).fillna(False)\n    cond_flow = ((f.pump_flow_bpd - f.pipeline_receive_flow_bpd) > f.max_flow_bpd * 0.05).fillna(False)\n    cond = cond_pressure & cond_flow\n\n    # persistence of at least 3 consecutive 5\u2011min steps (15 min)\n    alarm = (cond\n             .rolling(3, min_periods=3)\n             .all()\n             .fillna(False))\n\n    result[mask & alarm] = True\n    return result\n\n\ndef pump_degradation(f):\n    \"Alarm if pump flow declines 2.5\u202f% below 8\u2011h baseline for 1\u2011h persistence; NaN when pump is not running.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask = (f.pump_status == 1).fillna(False)\n\n    ratio = f.pump_flow_bpd / f.max_flow_bpd\n    # 96\u2011step (8\u202fh) rolling baseline median\n    baseline = ratio.rolling(96, min_periods=96).median()\n    # 48\u2011step (4\u202fh) rolling median of current flow ratio\n    current = ratio.rolling(48, min_periods=48).median()\n\n    degrade_signal = (current < baseline - 0.025).fillna(False)\n\n    # persistence of at least 12 consecutive 5\u2011min steps (1\u202fh)\n    alarm = (degrade_signal\n             .rolling(12, min_periods=12)\n             .all()\n             .fillna(False))\n\n    result[mask & alarm] = True\n    return result\n",
+  "train": {
+   "f1": 0.0,
+   "precision": 0.0,
+   "recall": 0.0,
+   "found": 0,
+   "labelled": 12,
+   "false_alarms": 0,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z"
+    }
+   ],
+   "false_alarm_examples": []
+  },
+  "errors": {
+   "pump_failure": "AttributeError: 'Rolling' object has no attribute 'all'",
+   "pipeline_leak": "AttributeError: 'Rolling' object has no attribute 'all'",
+   "pump_degradation": "AttributeError: 'Rolling' object has no attribute 'all'"
+  }
+ },
+ {
+  "n": 9,
+  "code": "import pandas as pd\nimport numpy as np\n\n\ndef pump_failure(f):\n    \"Alarm if pump_status==2 for 3 consecutive steps, or pump_flow==0 for 3 steps with tank level rising; NaN when pump is off.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask = f.pump_status != 0\n\n    # (a) pump_status==2 sustained 3 steps\n    cond_a = ((f.pump_status == 2).fillna(False)\n              .rolling(3, min_periods=3)\n              .sum()\n              .eq(3)\n              .fillna(False))\n\n    # (b) pump_flow==0 sustained 3 steps AND tank level rising 3 steps\n    cond_b_flow = ((f.pump_flow_bpd == 0).fillna(False)\n                   .rolling(3, min_periods=3)\n                   .sum()\n                   .eq(3)\n                   .fillna(False))\n    cond_b_tank = ((f.tank_level_pct.diff() > 0).fillna(False)\n                   .rolling(3, min_periods=3)\n                   .sum()\n                   .eq(3)\n                   .fillna(False))\n    cond_b = cond_b_flow & cond_b_tank\n\n    combined = cond_a | cond_b\n    result[mask & combined] = True\n    return result\n\n\ndef pipeline_leak(f):\n    \"Alarm if pipeline pressure well below disposal setpoint and flow imbalance indicates leak while pump runs; NaN when pump is off.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask = (f.pump_status == 1).fillna(False)\n\n    cond_pressure = (f.pipeline_pressure_psi < f.disposal_psi * 0.90).fillna(False)\n    cond_flow = ((f.pump_flow_bpd - f.pipeline_receive_flow_bpd) > f.max_flow_bpd * 0.05).fillna(False)\n    cond = cond_pressure & cond_flow\n\n    # persistence of at least 3 consecutive 5\u2011min steps (15\u202fmin)\n    alarm = (cond.rolling(3, min_periods=3).sum().eq(3).fillna(False))\n\n    result[mask & alarm] = True\n    return result\n\n\ndef pump_degradation(f):\n    \"Alarm if pump flow declines 2.5\u202f% below 8\u2011h baseline for 1\u2011h persistence; NaN when pump is not running.\"\n    result = pd.Series(pd.NA, index=f.index, dtype=\"boolean\")\n    mask = (f.pump_status == 1).fillna(False)\n\n    ratio = f.pump_flow_bpd / f.max_flow_bpd\n    # 96\u2011step (8\u202fh) rolling baseline median\n    baseline = ratio.rolling(96, min_periods=96).median()\n    # 48\u2011step (4\u202fh) rolling median of current flow ratio\n    current = ratio.rolling(48, min_periods=48).median()\n\n    degrade_signal = (current < baseline - 0.025).fillna(False)\n\n    # persistence of at least 12 consecutive 5\u2011min steps (1\u202fh)\n    alarm = (degrade_signal.rolling(12, min_periods=12).sum().eq(12).fillna(False))\n\n    result[mask & alarm] = True\n    return result\n",
+  "train": {
+   "f1": 0.667,
+   "precision": 1.0,
+   "recall": 0.5,
+   "found": 6,
+   "labelled": 12,
+   "false_alarms": 0,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 6,
+     "false_alarms": 0,
+     "median_onset_error_min": 10
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S3_PUMP_A",
+     "onset": "2026-10-07T08:00:00Z",
+     "end": "2026-10-08T20:00:00Z"
+    }
+   ],
+   "false_alarm_examples": []
+  },
+  "errors": {}
+ }
+]

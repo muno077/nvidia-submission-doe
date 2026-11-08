@@ -1,0 +1,437 @@
+{
+  "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+  "seconds": 976,
+  "train_systems": [
+    "S1",
+    "S2",
+    "S3"
+  ],
+  "held_out_systems": [
+    "S4",
+    "S5"
+  ],
+  "attempts": [
+    {
+      "n": 1,
+      "train_f1": 0.0,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 6,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        },
+        "pipeline_leak": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 3,
+          "median_onset_error_min": null
+        },
+        "pump_degradation": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        }
+      }
+    },
+    {
+      "n": 2,
+      "train_f1": 0.571,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 6,
+          "found": 6,
+          "false_alarms": 0,
+          "median_onset_error_min": 0
+        },
+        "pipeline_leak": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 3,
+          "median_onset_error_min": null
+        },
+        "pump_degradation": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        }
+      }
+    },
+    {
+      "n": 3,
+      "train_f1": 0.571,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 6,
+          "found": 6,
+          "false_alarms": 0,
+          "median_onset_error_min": 0
+        },
+        "pipeline_leak": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 3,
+          "median_onset_error_min": null
+        },
+        "pump_degradation": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        }
+      }
+    },
+    {
+      "n": 4,
+      "train_f1": 0.2,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 6,
+          "found": 6,
+          "false_alarms": 0,
+          "median_onset_error_min": 0
+        },
+        "pipeline_leak": {
+          "labelled": 3,
+          "found": 1,
+          "false_alarms": 2,
+          "median_onset_error_min": 150
+        },
+        "pump_degradation": {
+          "labelled": 3,
+          "found": 3,
+          "false_alarms": 76,
+          "median_onset_error_min": 20
+        }
+      }
+    },
+    {
+      "n": 5,
+      "train_f1": 0.727,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 6,
+          "found": 6,
+          "false_alarms": 0,
+          "median_onset_error_min": 0
+        },
+        "pipeline_leak": {
+          "labelled": 3,
+          "found": 2,
+          "false_alarms": 2,
+          "median_onset_error_min": 180
+        },
+        "pump_degradation": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        }
+      }
+    },
+    {
+      "n": 6,
+      "train_f1": 0.0,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 6,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        },
+        "pipeline_leak": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        },
+        "pump_degradation": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        }
+      }
+    },
+    {
+      "n": 7,
+      "train_f1": 0.0,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 6,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        },
+        "pipeline_leak": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        },
+        "pump_degradation": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        }
+      }
+    },
+    {
+      "n": 8,
+      "train_f1": 0.0,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 6,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        },
+        "pipeline_leak": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        },
+        "pump_degradation": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        }
+      }
+    },
+    {
+      "n": 9,
+      "train_f1": 0.667,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 6,
+          "found": 6,
+          "false_alarms": 0,
+          "median_onset_error_min": 10
+        },
+        "pipeline_leak": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        },
+        "pump_degradation": {
+          "labelled": 3,
+          "found": 0,
+          "false_alarms": 0,
+          "median_onset_error_min": null
+        }
+      }
+    }
+  ],
+  "best_attempt": 5,
+  "train": {
+    "f1": 0.727,
+    "precision": 0.8,
+    "recall": 0.667,
+    "found": 8,
+    "labelled": 12,
+    "false_alarms": 2,
+    "per_category": {
+      "pump_failure": {
+        "labelled": 6,
+        "found": 6,
+        "false_alarms": 0,
+        "median_onset_error_min": 0
+      },
+      "pipeline_leak": {
+        "labelled": 3,
+        "found": 2,
+        "false_alarms": 2,
+        "median_onset_error_min": 180
+      },
+      "pump_degradation": {
+        "labelled": 3,
+        "found": 0,
+        "false_alarms": 0,
+        "median_onset_error_min": null
+      }
+    },
+    "missed_examples": [
+      {
+        "category": "pump_degradation",
+        "asset": "S2_PUMP_A",
+        "onset": "2026-10-05T20:00:00Z",
+        "end": "2026-10-06T20:00:00Z"
+      },
+      {
+        "category": "pump_degradation",
+        "asset": "S1_PUMP_C",
+        "onset": "2026-10-06T12:00:00Z",
+        "end": "2026-10-08T00:20:00Z"
+      },
+      {
+        "category": "pump_degradation",
+        "asset": "S3_PUMP_A",
+        "onset": "2026-10-07T08:00:00Z",
+        "end": "2026-10-08T20:00:00Z"
+      },
+      {
+        "category": "pipeline_leak",
+        "asset": "S1_PIPELINE_B",
+        "onset": "2026-10-09T04:00:00Z",
+        "end": "2026-10-10T02:00:00Z"
+      }
+    ],
+    "false_alarm_examples": [
+      {
+        "category": "pipeline_leak",
+        "asset": "S3_PIPELINE_B",
+        "onset": "2026-10-05T12:10:00Z",
+        "end": "2026-10-06T10:00:00Z"
+      },
+      {
+        "category": "pipeline_leak",
+        "asset": "S1_PIPELINE_B",
+        "onset": "2026-10-09T14:30:00Z",
+        "end": "2026-10-10T08:00:00Z"
+      }
+    ]
+  },
+  "held_out": {
+    "f1": 0.667,
+    "precision": 0.7,
+    "recall": 0.636,
+    "found": 7,
+    "labelled": 11,
+    "false_alarms": 3,
+    "per_category": {
+      "pump_failure": {
+        "labelled": 7,
+        "found": 7,
+        "false_alarms": 0,
+        "median_onset_error_min": 0
+      },
+      "pipeline_leak": {
+        "labelled": 2,
+        "found": 0,
+        "false_alarms": 3,
+        "median_onset_error_min": null
+      },
+      "pump_degradation": {
+        "labelled": 2,
+        "found": 0,
+        "false_alarms": 0,
+        "median_onset_error_min": null
+      }
+    },
+    "missed_examples": [
+      {
+        "category": "pump_degradation",
+        "asset": "S5_PUMP_A",
+        "onset": "2026-10-05T12:00:00Z",
+        "end": "2026-10-06T16:00:00Z"
+      },
+      {
+        "category": "pipeline_leak",
+        "asset": "S4_PIPELINE_A",
+        "onset": "2026-10-06T02:00:00Z",
+        "end": "2026-10-07T06:00:00Z"
+      },
+      {
+        "category": "pump_degradation",
+        "asset": "S4_PUMP_C",
+        "onset": "2026-10-07T14:00:00Z",
+        "end": "2026-10-09T02:00:00Z"
+      },
+      {
+        "category": "pipeline_leak",
+        "asset": "S5_PIPELINE_B",
+        "onset": "2026-10-08T06:00:00Z",
+        "end": "2026-10-09T07:00:00Z"
+      }
+    ],
+    "false_alarm_examples": [
+      {
+        "category": "pipeline_leak",
+        "asset": "S4_PIPELINE_A",
+        "onset": "2026-10-06T10:45:00Z",
+        "end": "2026-10-07T06:10:00Z"
+      },
+      {
+        "category": "pipeline_leak",
+        "asset": "S5_PIPELINE_B",
+        "onset": "2026-10-08T10:30:00Z",
+        "end": "2026-10-08T14:05:00Z"
+      },
+      {
+        "category": "pipeline_leak",
+        "asset": "S5_PIPELINE_B",
+        "onset": "2026-10-08T19:10:00Z",
+        "end": "2026-10-09T08:10:00Z"
+      }
+    ],
+    "errors": {}
+  },
+  "baseline": {
+    "train": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "found": 12,
+      "labelled": 12,
+      "false_alarms": 0,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 6,
+          "found": 6,
+          "false_alarms": 0,
+          "median_onset_error_min": 0
+        },
+        "pipeline_leak": {
+          "labelled": 3,
+          "found": 3,
+          "false_alarms": 0,
+          "median_onset_error_min": 5
+        },
+        "pump_degradation": {
+          "labelled": 3,
+          "found": 3,
+          "false_alarms": 0,
+          "median_onset_error_min": -15
+        }
+      },
+      "missed_examples": [],
+      "false_alarm_examples": []
+    },
+    "held": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "found": 11,
+      "labelled": 11,
+      "false_alarms": 0,
+      "per_category": {
+        "pump_failure": {
+          "labelled": 7,
+          "found": 7,
+          "false_alarms": 0,
+          "median_onset_error_min": 0
+        },
+        "pipeline_leak": {
+          "labelled": 2,
+          "found": 2,
+          "false_alarms": 0,
+          "median_onset_error_min": 5
+        },
+        "pump_degradation": {
+          "labelled": 2,
+          "found": 2,
+          "false_alarms": 0,
+          "median_onset_error_min": -122
+        }
+      },
+      "missed_examples": [],
+      "false_alarm_examples": []
+    }
+  }
+}

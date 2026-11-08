@@ -1,0 +1,729 @@
+[
+ {
+  "n": 1,
+  "code": "import pandas as pd\nimport numpy as np\n\ndef pump_failure(f):\n    \"Tank level rises above start_level_pct while pump is stopped, sustained or rapid rise.\"\n    pump_stopped = f.pump_status == 0\n    level = f.tank_level_pct.where(pump_stopped)\n    start = f.start_level_pct.iloc[0]  # constant per facility\n    \n    # Condition 1: level > start_level_pct for >=3 consecutive readings (15 min)\n    above_start = (level > start).astype(int)\n    consecutive = above_start.groupby((above_start == 0).cumsum()).cumsum()\n    cond1 = consecutive >= 3\n    \n    # Condition 2: 30-min window (6 readings) increase >5 pct points while pump stopped\n    level_diff = level.diff(6)  # change over 6 periods (30 min)\n    cond2 = level_diff > 5\n    \n    return (cond1 | cond2).where(pump_stopped)\n\ndef pipeline_leak(f):\n    \"Pipeline pressure stays below 1044.40 psi for a full hour while pump runs.\"\n    pump_running = f.pump_status == 1\n    pressure = f.pipeline_pressure_psi.where(pump_running)\n    \n    # Pressure below threshold for 12 consecutive readings (1 hour)\n    below_thresh = (pressure < 1044.40).astype(int)\n    consecutive = below_thresh.groupby((below_thresh == 0).cumsum()).cumsum()\n    \n    return (consecutive >= 12).where(pump_running)\n\ndef pump_degradation(f):\n    \"Pump flow declines >0.5%/hour over a 2-hour window while pump runs.\"\n    pump_running = f.pump_status == 1\n    flow = f.pump_flow_bpd.where(pump_running)\n    max_flow = f.max_flow_bpd.iloc[0]  # constant per facility\n    \n    # Normalized flow ratio\n    ratio = flow / max_flow\n    \n    # 2-hour decline rate: (flow_now - flow_2h_ago) / (2h * flow_2h_ago)  [per hour]\n    # 24 periods = 2 hours at 5-min intervals\n    flow_2h_ago = flow.shift(24)\n    decline_rate_per_hour = (flow - flow_2h_ago) / (2 * flow_2h_ago)\n    \n    # Decline >0.5%/hour = rate < -0.005\n    # Also require flow already >5% below max (ratio < 0.95) to avoid noise at full capacity\n    cond = (decline_rate_per_hour < -0.005) & (ratio < 0.95)\n    \n    return cond.where(pump_running)\n",
+  "train": {
+   "f1": 0.077,
+   "precision": 0.071,
+   "recall": 0.083,
+   "found": 1,
+   "labelled": 12,
+   "false_alarms": 13,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 0,
+     "false_alarms": 2,
+     "median_onset_error_min": null
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 1,
+     "false_alarms": 3,
+     "median_onset_error_min": 55
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 8,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z",
+     "your_rule": "nearest alarm on this asset started 305 min early (must be within 240)"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z",
+     "your_rule": "nearest alarm on this asset started 1065 min late (must be within 240)"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z",
+     "your_rule": "nearest alarm on this asset started 1005 min late (must be within 240)"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z",
+     "your_rule": "never fired on this asset"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T00:55:00Z",
+     "end": null
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_A",
+     "onset": "2026-10-05T03:15:00Z",
+     "end": "2026-10-11T23:45:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-06T13:45:00Z",
+     "end": "2026-10-06T18:55:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S2_PUMP_C",
+     "onset": "2026-10-06T14:40:00Z",
+     "end": "2026-10-06T23:10:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ },
+ {
+  "n": 2,
+  "code": "import pandas as pd\nimport numpy as np\n\ndef pump_failure(f):\n    \"Tank level rises above start_level_pct while pump is not running, sustained or rapid rise.\"\n    pump_not_running = f.pump_status != 1\n    level = f.tank_level_pct.where(pump_not_running)\n    start = f.start_level_pct.iloc[0]\n    \n    # Condition 1: level > start_level_pct for >=3 consecutive readings (15 min)\n    above_start = (level > start)\n    cond1 = above_start.rolling(3, min_periods=3).sum() == 3\n    \n    # Condition 2: 30-min increase >5 pct points while level already above start_level_pct\n    level_diff = level.diff(6)  # change over 6 periods (30 min)\n    cond2 = (level_diff > 5) & above_start\n    \n    return (cond1 | cond2).where(pump_not_running)\n\ndef pipeline_leak(f):\n    \"Pipeline pressure stays below 1044.40 psi for 2 hours while pump runs.\"\n    pump_running = f.pump_status == 1\n    pressure = f.pipeline_pressure_psi.where(pump_running)\n    \n    # Pressure below threshold for 24 consecutive readings (2 hours)\n    below_thresh = (pressure < 1044.40).astype(int)\n    consecutive = below_thresh.groupby((below_thresh == 0).cumsum()).cumsum()\n    \n    return (consecutive >= 24).where(pump_running)\n\ndef pump_degradation(f):\n    \"Pump flow declines >0.5%/hour over a 2-hour window while pump runs.\"\n    pump_running = f.pump_status == 1\n    flow = f.pump_flow_bpd.where(pump_running)\n    max_flow = f.max_flow_bpd.iloc[0]\n    \n    # 2-hour decline rate: (flow_now - flow_2h_ago) / (2h * flow_2h_ago)  [per hour]\n    flow_2h_ago = flow.shift(24)\n    decline_rate_per_hour = (flow - flow_2h_ago) / (2 * flow_2h_ago)\n    \n    # Decline >0.5%/hour = rate < -0.005\n    cond = decline_rate_per_hour < -0.005\n    \n    return cond.where(pump_running)\n",
+  "train": {
+   "f1": 0.302,
+   "precision": 0.195,
+   "recall": 0.667,
+   "found": 8,
+   "labelled": 12,
+   "false_alarms": 33,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 5,
+     "false_alarms": 1,
+     "median_onset_error_min": 145
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 1,
+     "false_alarms": 3,
+     "median_onset_error_min": 115
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 2,
+     "false_alarms": 29,
+     "median_onset_error_min": 158
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z",
+     "your_rule": "nearest alarm on this asset started 245 min early (must be within 240)"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z",
+     "your_rule": "nearest alarm on this asset started 245 min late (must be within 240)"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z",
+     "your_rule": "nearest alarm on this asset started 315 min late (must be within 240)"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S1_PIPELINE_B",
+     "onset": "2026-10-09T04:00:00Z",
+     "end": "2026-10-10T02:00:00Z",
+     "your_rule": "nearest alarm on this asset started 885 min late (must be within 240)"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T01:55:00Z",
+     "end": null
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_A",
+     "onset": "2026-10-05T04:15:00Z",
+     "end": "2026-10-11T23:45:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-05T17:10:00Z",
+     "end": "2026-10-05T17:25:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-06T00:05:00Z",
+     "end": "2026-10-06T05:00:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ },
+ {
+  "n": 3,
+  "code": "import pandas as pd\nimport numpy as np\n\ndef pump_failure(f):\n    \"Tank level rises above start_level_pct while pump is stopped, sustained or rapid rise.\"\n    pump_stopped = f.pump_status == 0\n    level = f.tank_level_pct.where(pump_stopped)\n    start = f.start_level_pct.iloc[0]\n    \n    # Condition 1: level > start_level_pct for >=3 consecutive readings (15 min)\n    above_start = (level > start)\n    cond1 = above_start.rolling(3, min_periods=3).sum() == 3\n    \n    # Condition 2: 30-min increase >5 pct points while level already above start_level_pct\n    level_diff = level.diff(6)  # change over 6 periods (30 min)\n    cond2 = (level_diff > 5) & above_start\n    \n    return (cond1 | cond2).where(pump_stopped)\n\ndef pipeline_leak(f):\n    \"Pipeline pressure drops below 1044.40 psi for 1 hour with a clear transition from normal pressure.\"\n    pump_running = f.pump_status == 1\n    pressure = f.pipeline_pressure_psi.where(pump_running)\n    \n    # Pressure below threshold for 12 consecutive readings (1 hour)\n    below_thresh = (pressure < 1044.40)\n    consecutive = below_thresh.groupby((~below_thresh).cumsum()).cumsum()\n    \n    # Require that pressure was above threshold 1 hour ago (transition from normal)\n    was_above = pressure.shift(12) >= 1044.40\n    \n    return (consecutive >= 12) & was_above.where(pump_running)\n\ndef pump_degradation(f):\n    \"Pump flow declines >0.5%/hour over a 2-hour window, sustained for at least 30 minutes.\"\n    pump_running = f.pump_status == 1\n    flow = f.pump_flow_bpd.where(pump_running)\n    max_flow = f.max_flow_bpd.iloc[0]\n    \n    # 2-hour decline rate: (flow_now - flow_2h_ago) / (2h * flow_2h_ago)  [per hour]\n    flow_2h_ago = flow.shift(24)\n    decline_rate_per_hour = (flow - flow_2h_ago) / (2 * flow_2h_ago)\n    \n    # Decline >0.5%/hour = rate < -0.005\n    rate_below = decline_rate_per_hour < -0.005\n    \n    # Require sustained for at least 6 consecutive periods (30 min)\n    sustained = rate_below.rolling(6, min_periods=6).sum() == 6\n    \n    return sustained.where(pump_running)\n",
+  "train": {
+   "f1": 0.0,
+   "precision": 0.0,
+   "recall": 0.0,
+   "found": 0,
+   "labelled": 12,
+   "false_alarms": 0,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z",
+     "your_rule": "never fired on this asset"
+    }
+   ],
+   "false_alarm_examples": []
+  },
+  "errors": {}
+ },
+ {
+  "n": 4,
+  "code": "import pandas as pd\nimport numpy as np\n\ndef pump_failure(f):\n    \"Tank level rises above start_level_pct while pump is stopped, sustained or rapid rise.\"\n    pump_stopped = f.pump_status == 0\n    level = f.tank_level_pct.where(pump_stopped)\n    start = f.start_level_pct.iloc[0]\n    \n    # Condition 1: level > start_level_pct for >=3 consecutive readings (15 min)\n    above_start = (level > start)\n    cond1 = above_start.rolling(3, min_periods=3).sum() == 3\n    \n    # Condition 2: 30-min increase >5 pct points while pump stopped (no above_start requirement)\n    level_diff = level.diff(6)  # change over 6 periods (30 min)\n    cond2 = level_diff > 5\n    \n    return (cond1 | cond2).where(pump_stopped)\n\ndef pipeline_leak(f):\n    \"Pipeline pressure below 1044.40 psi for 1 hour with concurrent inflow decrease.\"\n    pump_running = f.pump_status == 1\n    pressure = f.pipeline_pressure_psi.where(pump_running)\n    inflow = f.facility_inflow_bpd.where(pump_running)\n    \n    # Pressure below threshold for 12 consecutive readings (1 hour)\n    below_thresh = (pressure < 1044.40)\n    consecutive = below_thresh.groupby((~below_thresh).cumsum()).cumsum()\n    pressure_cond = consecutive >= 12\n    \n    # Inflow decrease: current inflow < 90% of 24-hour rolling median\n    inflow_median = inflow.rolling(288, min_periods=12).median()\n    inflow_cond = inflow < 0.9 * inflow_median\n    \n    return (pressure_cond & inflow_cond).where(pump_running)\n\ndef pump_degradation(f):\n    \"Pump flow declines >0.5%/hr over 2-hour window while flow is below 95% of max, sustained 15 min.\"\n    pump_running = f.pump_status == 1\n    flow = f.pump_flow_bpd.where(pump_running)\n    max_flow = f.max_flow_bpd.iloc[0]\n    \n    # Normalized flow ratio\n    ratio = flow / max_flow\n    \n    # 2-hour decline rate: (flow_now - flow_2h_ago) / (2h * flow_2h_ago)  [per hour]\n    flow_2h_ago = flow.shift(24)\n    decline_rate_per_hour = (flow - flow_2h_ago) / (2 * flow_2h_ago)\n    \n    # Decline >0.5%/hour AND flow already >5% below max\n    cond = (decline_rate_per_hour < -0.005) & (ratio < 0.95)\n    \n    # Require sustained for at least 3 consecutive periods (15 min)\n    sustained = cond.rolling(3, min_periods=3).sum() == 3\n    \n    return sustained.where(pump_running)\n",
+  "train": {
+   "f1": 0.0,
+   "precision": 0.0,
+   "recall": 0.0,
+   "found": 0,
+   "labelled": 12,
+   "false_alarms": 9,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 0,
+     "false_alarms": 2,
+     "median_onset_error_min": null
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 7,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z",
+     "your_rule": "nearest alarm on this asset started 1155 min late (must be within 240)"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z",
+     "your_rule": "nearest alarm on this asset started 1015 min late (must be within 240)"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z",
+     "your_rule": "never fired on this asset"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pump_failure",
+     "asset": "S2_PUMP_C",
+     "onset": "2026-10-06T14:40:00Z",
+     "end": "2026-10-06T23:10:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-06T15:15:00Z",
+     "end": "2026-10-06T16:15:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-07T04:55:00Z",
+     "end": "2026-10-07T05:20:00Z"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-07T20:25:00Z",
+     "end": "2026-10-07T20:40:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ },
+ {
+  "n": 5,
+  "code": "import pandas as pd\nimport numpy as np\n\ndef pump_failure(f):\n    \"Tank level rises above start_level_pct while pump is stopped, sustained or rapid rise.\"\n    pump_stopped = f.pump_status == 0\n    level = f.tank_level_pct.where(pump_stopped)\n    start = f.start_level_pct.iloc[0]\n    \n    # Condition 1: level > start_level_pct for >=3 consecutive readings (15 min)\n    above_start = (level > start)\n    cond1 = above_start.rolling(3, min_periods=3).sum() == 3\n    \n    # Condition 2: 30-min increase >5 pct points while level already above start_level_pct\n    level_diff = level.diff(6)  # change over 6 periods (30 min)\n    cond2 = (level_diff > 5) & above_start\n    \n    return (cond1 | cond2).where(pump_stopped)\n\ndef pipeline_leak(f):\n    \"Pipeline pressure drops below 1044.40 psi for 1 hour with a clear transition from normal pressure.\"\n    pump_running = f.pump_status == 1\n    pressure = f.pipeline_pressure_psi.where(pump_running)\n    \n    # Pressure below threshold for 12 consecutive readings (1 hour)\n    below_thresh = (pressure < 1044.40)\n    consecutive = below_thresh.groupby((~below_thresh).cumsum()).cumsum()\n    pressure_cond = consecutive >= 12\n    \n    # Require that pressure was above threshold 1 hour ago (transition from normal)\n    was_above = pressure.shift(12) >= 1044.40\n    \n    return (pressure_cond & was_above).where(pump_running)\n\ndef pump_degradation(f):\n    \"Pump flow declines >0.5%/hr over a 4-hour window while flow is below 95% of max, sustained 30 min.\"\n    pump_running = f.pump_status == 1\n    flow = f.pump_flow_bpd.where(pump_running)\n    max_flow = f.max_flow_bpd.iloc[0]\n    \n    # Normalized flow ratio\n    ratio = flow / max_flow\n    \n    # 4-hour decline rate: (flow_now - flow_4h_ago) / (4h * flow_4h_ago)  [per hour]\n    flow_4h_ago = flow.shift(48)\n    decline_rate_per_hour = (flow - flow_4h_ago) / (4 * flow_4h_ago)\n    \n    # Decline >0.5%/hour AND flow already >5% below max\n    cond = (decline_rate_per_hour < -0.005) & (ratio < 0.95)\n    \n    # Require sustained for at least 6 consecutive periods (30 min)\n    sustained = cond.rolling(6, min_periods=6).sum() == 6\n    \n    return sustained.where(pump_running)\n",
+  "train": {
+   "f1": 0.0,
+   "precision": 0.0,
+   "recall": 0.0,
+   "found": 0,
+   "labelled": 12,
+   "false_alarms": 0,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z",
+     "your_rule": "never fired on this asset"
+    }
+   ],
+   "false_alarm_examples": []
+  },
+  "errors": {}
+ },
+ {
+  "n": 6,
+  "code": "import pandas as pd\nimport numpy as np\n\ndef pump_failure(f):\n    \"Tank level above start_level_pct with sustained rise >3%/hr for 20 min while pump not running.\"\n    pump_not_running = f.pump_status != 1\n    level = f.tank_level_pct.where(pump_not_running)\n    start = f.start_level_pct.iloc[0]\n    \n    # Level above facility start level\n    above_start = level > start\n    \n    # 4 consecutive readings above start (20 minutes at 5-min intervals)\n    consecutive_above = above_start.rolling(4, min_periods=4).sum() == 4\n    \n    # Rise rate >3%/hour: 1-hour difference (12 periods)\n    level_1h_ago = level.shift(12)\n    rise_rate_per_hour = (level - level_1h_ago)  # % per hour over 1 hour\n    sustained_rise = rise_rate_per_hour > 3\n    \n    # All conditions must hold\n    return (above_start & consecutive_above & sustained_rise).where(pump_not_running)\n\ndef pipeline_leak(f):\n    \"Pipeline pressure below facility 25th percentile (disposal_psi - 75) for 2 hours while pump runs.\"\n    pump_running = f.pump_status == 1\n    pressure = f.pipeline_pressure_psi.where(pump_running)\n    \n    # Facility-adaptive threshold: disposal_psi - 75 psi (empirical 25th percentile proxy)\n    threshold = f.disposal_psi.iloc[0] - 75\n    \n    # Pressure below facility threshold\n    below_thresh = pressure < threshold\n    \n    # 24 consecutive readings below threshold (2 hours at 5-min intervals)\n    consecutive_below = below_thresh.rolling(24, min_periods=24).sum() == 24\n    \n    return consecutive_below.where(pump_running)\n\ndef pump_degradation(f):\n    \"Pump flow below 95% of 24-hour rolling average for 24 hours while pump runs.\"\n    pump_running = f.pump_status == 1\n    flow = f.pump_flow_bpd.where(pump_running)\n    \n    # 24-hour rolling average (288 periods at 5-min intervals)\n    rolling_avg = flow.rolling(288, min_periods=288).mean()\n    \n    # Flow below 95% of rolling 24-hour average\n    below_threshold = flow < (rolling_avg * 0.95)\n    \n    # 288 consecutive readings below threshold (24 hours sustained)\n    sustained_below = below_threshold.rolling(288, min_periods=288).sum() == 288\n    \n    return sustained_below.where(pump_running)\n",
+  "train": {
+   "f1": 0.556,
+   "precision": 0.833,
+   "recall": 0.417,
+   "found": 5,
+   "labelled": 12,
+   "false_alarms": 1,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 5,
+     "false_alarms": 1,
+     "median_onset_error_min": 150
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z",
+     "your_rule": "nearest alarm on this asset started 320 min late (must be within 240)"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T07:30:00Z",
+     "end": "2026-10-07T21:40:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ },
+ {
+  "n": 7,
+  "code": "import pandas as pd\nimport numpy as np\n\ndef pump_failure(f):\n    \"Tank level rises >3%/hr for 20 min while pump off, level near/above start_level_pct.\"\n    pump_not_running = f.pump_status != 1\n    level = f.tank_level_pct\n    start = f.start_level_pct.iloc[0]\n    \n    # 1-hour rise rate (12 periods)\n    level_1h_ago = level.shift(12)\n    rise_rate_per_hour = level - level_1h_ago\n    \n    # Sustained rise: 4 consecutive periods (20 min) with rise rate >3%/hr\n    sustained_rise = (rise_rate_per_hour > 3).rolling(4, min_periods=4).sum() == 4\n    \n    # Level at or approaching start_level_pct (within 5 pct points)\n    near_start = level > (start - 5)\n    \n    # Pump must be off; return False when pump running to break carried verdicts\n    cond = pump_not_running & sustained_rise & near_start\n    return cond.astype(float).where(pump_not_running, False)\n\ndef pipeline_leak(f):\n    \"Pipeline pressure below facility 25th percentile (pump-running) for 2 hours while pump runs.\"\n    pump_running = f.pump_status == 1\n    pressure = f.pipeline_pressure_psi\n    \n    # Facility-adaptive threshold: 25th percentile of pressure when pump running (whole series)\n    threshold = pressure[pump_running].quantile(0.25)\n    \n    # Pressure below threshold\n    below_thresh = pressure < threshold\n    \n    # 24 consecutive readings below threshold (2 hours at 5-min intervals)\n    consecutive_below = below_thresh.rolling(24, min_periods=24).sum() == 24\n    \n    # Only evaluate when pump running; NaN otherwise\n    return consecutive_below.where(pump_running)\n\ndef pump_degradation(f):\n    \"Pump flow below 95% of 24h rolling average for 4 hours while pump runs.\"\n    pump_running = f.pump_status == 1\n    flow = f.pump_flow_bpd\n    \n    # 24-hour rolling average (288 periods)\n    rolling_avg = flow.rolling(288, min_periods=288).mean()\n    \n    # Flow below 95% of rolling average\n    below_threshold = flow < (rolling_avg * 0.95)\n    \n    # 48 consecutive readings below threshold (4 hours sustained)\n    sustained_below = below_threshold.rolling(48, min_periods=48).sum() == 48\n    \n    # Only evaluate when pump running; NaN otherwise\n    return sustained_below.where(pump_running)\n",
+  "train": {
+   "f1": 0.143,
+   "precision": 0.08,
+   "recall": 0.667,
+   "found": 8,
+   "labelled": 12,
+   "false_alarms": 92,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 5,
+     "false_alarms": 91,
+     "median_onset_error_min": 100
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 3,
+     "false_alarms": 1,
+     "median_onset_error_min": 115
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z",
+     "your_rule": "nearest alarm on this asset started 260 min late (must be within 240)"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S3_PUMP_A",
+     "onset": "2026-10-07T08:00:00Z",
+     "end": "2026-10-08T20:00:00Z",
+     "your_rule": "never fired on this asset"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pump_failure",
+     "asset": "S3_PUMP_A",
+     "onset": "2026-10-05T01:50:00Z",
+     "end": "2026-10-05T02:20:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-05T04:15:00Z",
+     "end": "2026-10-05T05:00:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S3_PUMP_B",
+     "onset": "2026-10-05T06:30:00Z",
+     "end": "2026-10-05T07:00:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T08:00:00Z",
+     "end": "2026-10-05T08:30:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ },
+ {
+  "n": 8,
+  "code": "import pandas as pd\nimport numpy as np\n\ndef pump_failure(f):\n    \"Tank level above start_level_pct for 20 min with sustained rise >3%/hr, or rapid 30-min rise >5 pct, while pump off.\"\n    pump_not_running = f.pump_status != 1\n    level = f.tank_level_pct\n    start = f.start_level_pct.iloc[0]\n    \n    # Condition 1: level above start_level_pct for 4 consecutive readings (20 min) with sustained rise\n    above_start = level > start\n    consecutive_above = above_start.rolling(4, min_periods=4).sum() == 4\n    \n    # 1-hour rise rate (12 periods)\n    rise_rate_1h = level.diff(12)\n    sustained_rise = (rise_rate_1h > 3).rolling(4, min_periods=4).sum() == 4\n    \n    cond1 = pump_not_running & consecutive_above & sustained_rise\n    \n    # Condition 2: 30-min increase >5 pct points while already above start_level_pct\n    rise_30min = level.diff(6)\n    cond2 = pump_not_running & above_start & (rise_30min > 5)\n    \n    return (cond1 | cond2).where(pump_not_running)\n\ndef pipeline_leak(f):\n    \"Pipeline pressure below facility 25th percentile (pump-running, first 24h) for 2 hours while pump runs.\"\n    pump_running = f.pump_status == 1\n    pressure = f.pipeline_pressure_psi\n    \n    # Use first 24 hours (288 periods) of pump-running data to compute healthy 25th percentile\n    early_pump_running = pump_running.iloc[:288]\n    early_pressure = pressure.iloc[:288]\n    healthy_pressure = early_pressure[early_pump_running]\n    if len(healthy_pressure) > 10:\n        threshold = healthy_pressure.quantile(0.25)\n    else:\n        # Fallback: disposal_psi - 75\n        threshold = f.disposal_psi.iloc[0] - 75\n    \n    below_thresh = pressure < threshold\n    consecutive_below = below_thresh.rolling(24, min_periods=24).sum() == 24\n    \n    return consecutive_below.where(pump_running)\n\ndef pump_degradation(f):\n    \"Pump flow 24-hour average decline rate >0.5%/hr sustained for 4 hours while pump runs.\"\n    pump_running = f.pump_status == 1\n    flow = f.pump_flow_bpd\n    \n    # 24-hour decline rate: (flow_now - flow_24h_ago) / (24 * flow_24h_ago) per hour\n    flow_24h_ago = flow.shift(288)\n    decline_rate_per_hour = (flow - flow_24h_ago) / (24 * flow_24h_ago)\n    \n    # Decline >0.5%/hour (i.e., rate < -0.005)\n    significant_decline = decline_rate_per_hour < -0.005\n    \n    # Sustained for 48 consecutive periods (4 hours)\n    sustained_decline = significant_decline.rolling(48, min_periods=48).sum() == 48\n    \n    return sustained_decline.where(pump_running)\n",
+  "train": {
+   "f1": 0.636,
+   "precision": 0.7,
+   "recall": 0.583,
+   "found": 7,
+   "labelled": 12,
+   "false_alarms": 3,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 5,
+     "false_alarms": 1,
+     "median_onset_error_min": 150
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 2,
+     "false_alarms": 2,
+     "median_onset_error_min": 110
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T06:00:00Z",
+     "end": "2026-10-06T08:00:00Z",
+     "your_rule": "nearest alarm on this asset started 970 min late (must be within 240)"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z",
+     "your_rule": "nearest alarm on this asset started 320 min late (must be within 240)"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pipeline_leak",
+     "asset": "S3_PIPELINE_B",
+     "onset": "2026-10-05T22:10:00Z",
+     "end": "2026-10-06T10:00:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T07:30:00Z",
+     "end": "2026-10-07T21:40:00Z"
+    },
+    {
+     "category": "pipeline_leak",
+     "asset": "S2_PIPELINE_A",
+     "onset": "2026-10-07T16:20:00Z",
+     "end": "2026-10-07T16:35:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ },
+ {
+  "n": 9,
+  "code": "import pandas as pd\nimport numpy as np\n\ndef pump_failure(f):\n    \"Tank level above start_level_pct for 20 min with sustained 1-hr rise >3%/hr, while pump off and level below shutdown.\"\n    pump_not_running = f.pump_status != 1\n    level = f.tank_level_pct\n    start = f.start_level_pct.iloc[0]\n    shutdown = f.shutdown_pct.iloc[0]\n    \n    # Level above start (within 5 pct tolerance for early onset)\n    above_start = level > (start - 5)\n    # 4 consecutive readings (20 min)\n    consecutive_above = above_start.rolling(4, min_periods=4).sum() == 4\n    \n    # 1-hour rise rate (12 periods)\n    rise_rate_1h = level.diff(12)\n    # Sustained rise: 4 consecutive periods with rise rate >3%/hr\n    sustained_rise = (rise_rate_1h > 3).rolling(4, min_periods=4).sum() == 4\n    \n    # Tank not yet at shutdown level (avoid false alarm when full)\n    below_shutdown = level < shutdown\n    \n    cond1 = pump_not_running & consecutive_above & sustained_rise & below_shutdown\n    \n    # Condition 2: rapid 30-min rise >5 pct while near start\n    rise_30min = level.diff(6)\n    cond2 = pump_not_running & above_start & (rise_30min > 5) & below_shutdown\n    \n    return (cond1 | cond2).where(pump_not_running)\n\ndef pipeline_leak(f):\n    \"Pipeline pressure below facility 25th percentile (all pump-running data) for 1 hour while pump runs.\"\n    pump_running = f.pump_status == 1\n    pressure = f.pipeline_pressure_psi\n    \n    # Facility-adaptive threshold: 25th percentile of pressure when pump running (entire series)\n    healthy_pressure = pressure[pump_running]\n    if len(healthy_pressure) > 10:\n        threshold = healthy_pressure.quantile(0.25)\n    else:\n        threshold = f.disposal_psi.iloc[0] - 75\n    \n    below_thresh = pressure < threshold\n    # 12 consecutive readings below threshold (1 hour at 5-min intervals)\n    consecutive_below = below_thresh.rolling(12, min_periods=12).sum() == 12\n    \n    return consecutive_below.where(pump_running)\n\ndef pump_degradation(f):\n    \"Pump flow below 95% of 6-hour rolling average for 6 hours while pump runs.\"\n    pump_running = f.pump_status == 1\n    flow = f.pump_flow_bpd\n    \n    # 6-hour rolling average (72 periods)\n    rolling_avg = flow.rolling(72, min_periods=72).mean()\n    \n    # Flow below 95% of rolling average\n    below_threshold = flow < (rolling_avg * 0.95)\n    \n    # 72 consecutive readings below threshold (6 hours sustained)\n    sustained_below = below_threshold.rolling(72, min_periods=72).sum() == 72\n    \n    return sustained_below.where(pump_running)\n",
+  "train": {
+   "f1": 0.093,
+   "precision": 0.052,
+   "recall": 0.417,
+   "found": 5,
+   "labelled": 12,
+   "false_alarms": 91,
+   "per_category": {
+    "pump_failure": {
+     "labelled": 6,
+     "found": 2,
+     "false_alarms": 90,
+     "median_onset_error_min": 145
+    },
+    "pipeline_leak": {
+     "labelled": 3,
+     "found": 3,
+     "false_alarms": 1,
+     "median_onset_error_min": 55
+    },
+    "pump_degradation": {
+     "labelled": 3,
+     "found": 0,
+     "false_alarms": 0,
+     "median_onset_error_min": null
+    }
+   },
+   "missed_examples": [
+    {
+     "category": "pump_degradation",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T20:00:00Z",
+     "end": "2026-10-06T20:00:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S1_PUMP_C",
+     "onset": "2026-10-06T12:00:00Z",
+     "end": "2026-10-08T00:20:00Z",
+     "your_rule": "never fired on this asset"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-07T02:10:00Z",
+     "end": "2026-10-07T08:10:00Z",
+     "your_rule": "nearest alarm on this asset started 275 min late (must be within 240)"
+    },
+    {
+     "category": "pump_degradation",
+     "asset": "S3_PUMP_A",
+     "onset": "2026-10-07T08:00:00Z",
+     "end": "2026-10-08T20:00:00Z",
+     "your_rule": "never fired on this asset"
+    }
+   ],
+   "false_alarm_examples": [
+    {
+     "category": "pump_failure",
+     "asset": "S3_PUMP_A",
+     "onset": "2026-10-05T02:05:00Z",
+     "end": "2026-10-05T11:00:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S1_PUMP_B",
+     "onset": "2026-10-05T04:30:00Z",
+     "end": "2026-10-05T16:40:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S3_PUMP_B",
+     "onset": "2026-10-05T06:45:00Z",
+     "end": "2026-10-05T16:00:00Z"
+    },
+    {
+     "category": "pump_failure",
+     "asset": "S2_PUMP_A",
+     "onset": "2026-10-05T08:15:00Z",
+     "end": "2026-10-05T17:20:00Z"
+    }
+   ]
+  },
+  "errors": {}
+ }
+]
