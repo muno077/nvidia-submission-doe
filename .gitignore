@@ -13,6 +13,10 @@ dist/
 build/
 .next/
 
+# Challenge data (~80 MB): copy it in from the ZeroDay repo, don't commit it
+data/
+.ipynb_checkpoints/
+
 # Editor / OS junk
 .DS_Store
 .vscode/
