@@ -2,6 +2,7 @@
 
     uv run python eval/run_eval.py                 # every folder under data/ with an answer key
     uv run python eval/run_eval.py data/history/snapshot_2026-10-08T1200
+    uv run python eval/run_eval.py --detector runs/<id>/detector.py   # grade a Nemotron-written monitor
 
 The app itself never reads answer_key.json. This script is the only place that does.
 """
@@ -18,7 +19,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from copilot.data import find_datasets, iso, load_dataset  # noqa: E402
 from copilot.detect import detect_events  # noqa: E402
 from copilot.planner import analyze  # noqa: E402
+from copilot.sandbox import detect_with_agent_rules  # noqa: E402
 from copilot.scoring import match  # noqa: E402
+
+AGENT_CODE: str | None = None  # set by --detector
 
 
 def cost_of(ref: str) -> float | None:
@@ -29,7 +33,8 @@ def cost_of(ref: str) -> float | None:
 def evaluate(folder: Path) -> dict:
     key = json.loads((folder / "answer_key.json").read_text())
     ds = load_dataset(folder)
-    events = analyze(ds, detect_events(ds))
+    raw = detect_with_agent_rules(ds, AGENT_CODE)[0] if AGENT_CODE else detect_events(ds)
+    events = analyze(ds, raw)
     pairs, missed, extra = match(key, events)
 
     print(f"\n=== {folder.name}  (now = {iso(ds.now)}) ===")
@@ -59,8 +64,13 @@ def evaluate(folder: Path) -> dict:
 
 
 if __name__ == "__main__":
+    args = sys.argv[1:]
+    if "--detector" in args:
+        i = args.index("--detector")
+        AGENT_CODE = Path(args[i + 1]).read_text()
+        args = args[:i] + args[i + 2:]
     root = Path(__file__).resolve().parents[1] / "data"
-    folders = [Path(a) for a in sys.argv[1:]] or [p for p in find_datasets(root) if (p / "answer_key.json").exists()]
+    folders = [Path(a) for a in args] or [p for p in find_datasets(root) if (p / "answer_key.json").exists()]
     totals = [evaluate(f) for f in folders]
     print(f"\nTOTAL: {sum(t['found'] for t in totals)}/{sum(t['labelled'] for t in totals)} detected, "
           f"{sum(t['false'] for t in totals)} false alarms")

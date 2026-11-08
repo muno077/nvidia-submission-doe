@@ -17,7 +17,9 @@ import streamlit as st
 
 from copilot.data import Dataset, find_datasets, iso, load_dataset
 from copilot.detect import detect_events
+from copilot.discovery import list_runs
 from copilot.planner import analyze, plan_system, projection
+from copilot.sandbox import detect_with_agent_rules
 
 ROOT = Path(__file__).parent
 CATEGORY_LABEL = {"pump_failure": "Pump failure", "pipeline_leak": "Pipeline leak", "pump_degradation": "Pump wearing out"}
@@ -34,9 +36,11 @@ def get_dataset(folder: str) -> Dataset:
 
 
 @st.cache_resource(show_spinner="Detecting problems...")
-def get_events(folder: str, now: int):
+def get_events(folder: str, now: int, detector: str | None = None):
+    """detector: None for the hand-built rules, or a path to a Nemotron-written detector.py."""
     ds = get_dataset(folder).until(now)
-    return ds, analyze(ds, detect_events(ds))
+    raw = detect_with_agent_rules(ds, Path(detector).read_text())[0] if detector else detect_events(ds)
+    return ds, analyze(ds, raw)
 
 
 def fmt_t(ts: int) -> str:
@@ -68,7 +72,13 @@ with st.sidebar:
     hours = list(range(full.start + 3600, full.now, 3600)) + [full.now]
     now = st.select_slider("Now", options=hours, value=full.now, format_func=fmt_t)
 
-ds, events = get_events(folder, int(now))
+    st.header("Detector")
+    runs = [r for r in list_runs() if (r / "detector.py").exists()]
+    det_labels = ["Hand-built rules"] + [f"Nemotron-discovered · run {r.name}" for r in runs]
+    det_choice = st.radio("Which rules find the problems?", det_labels, index=0)
+    detector = None if det_choice == det_labels[0] else str(runs[det_labels.index(det_choice) - 1] / "detector.py")
+
+ds, events = get_events(folder, int(now), detector)
 ongoing = [e for e in events if e.status == "ongoing"]
 failures = [e for e in ongoing if e.category == "pump_failure"]
 
@@ -84,8 +94,8 @@ c2.metric("Pump failures", len(failures))
 c3.metric("Soonest shutdown", fmt_hours(soonest))
 c4.metric("Cost of recommended plans", f"${sum(e.est_cost or 0 for e in failures):,.0f}")
 
-tab_alerts, tab_map, tab_trends, tab_whatif, tab_agent, tab_export = st.tabs(
-    ["🚨 Alerts", "🗺️ Map", "📈 Trends", "🧪 What-if", "🤖 Nemotron copilot", "📤 Export"])
+tab_alerts, tab_map, tab_trends, tab_whatif, tab_agent, tab_lab, tab_export = st.tabs(
+    ["🚨 Alerts", "🗺️ Map", "📈 Trends", "🧪 What-if", "🤖 Nemotron copilot", "🧠 Discovery lab", "📤 Export"])
 
 # --- alerts -----------------------------------------------------------------------
 
@@ -242,6 +252,98 @@ with tab_agent:
                 label = f"{step['agent']} · {step['type']}" + (f" · {step['name']}" if step.get("name") else "")
                 st.markdown(f"**{label}**")
                 st.code(step["content"][:2000], language="json" if step["type"] != "output" else "markdown")
+
+# --- Discovery lab ----------------------------------------------------------------
+
+with tab_lab:
+    st.markdown(
+        "Nemotron builds the monitor itself, with no hand-written rules. **Reader** studies the docs (search), "
+        "**Scientist** runs Python on the training systems (S1–S3) to find each problem's signature, **Engineer** "
+        "writes rule functions and iterates on the score, **Reporter** writes the model card. The rules are then "
+        "graded on systems the agents never saw (S4–S5), next to the hand-built baseline.")
+    if os.getenv("NVIDIA_API_KEY") and st.button("Run discovery (takes several minutes)", type="primary"):
+        from copilot.discovery import run_discovery
+        with st.status("Agents learning the network...", expanded=True) as status:
+            def show(step: dict):
+                if step["type"] == "tool_call":
+                    st.write(f"**{step['agent']}** → `{step['name']}`")
+                elif step["type"] == "score":
+                    d = json.loads(step["content"])
+                    st.write(f"📊 **{step['name']}**: F1 {d.get('f1', d.get('held_out_f1'))}")
+                elif step["type"] == "output":
+                    st.write(f"**{step['agent']}** finished.")
+            try:
+                saved = run_discovery(show)
+                status.update(label=f"Saved run {saved.name}", state="complete", expanded=False)
+                st.rerun()
+            except Exception as exc:
+                status.update(label="Discovery failed", state="error")
+                st.error(f"{type(exc).__name__}: {exc}")
+
+    all_runs = list_runs()
+    if not all_runs:
+        st.info("No discovery runs yet.")
+    else:
+        def train_f1(p):
+            return (json.loads((p / "summary.json").read_text()).get("train") or {}).get("f1", 0)
+        # default to the run with the best TRAINING score (choosing on held-out would leak the test set)
+        best_i = max(range(len(all_runs)), key=lambda i: train_f1(all_runs[i]))
+        run_dir = st.selectbox("Run", all_runs, index=best_i,
+                               format_func=lambda p: f"{p.name} · train F1 {train_f1(p)}")
+        summ = json.loads((run_dir / "summary.json").read_text())
+        train, held, base = summ.get("train") or {}, summ.get("held_out") or {}, summ.get("baseline") or {}
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Train F1 (S1–S3)", train.get("f1", "-"))
+        m2.metric("Held-out F1 (unseen S4–S5)", held.get("f1", "-"),
+                  delta=round(held["f1"] - base["held"]["f1"], 3) if held and base else None,
+                  help="Delta is versus the hand-built baseline on the same held-out systems.")
+        m3.metric("Baseline held-out F1", base.get("held", {}).get("f1", "-"))
+        m4.metric("Attempts / time", f"{len(summ['attempts'])} · {summ['seconds'] // 60} min")
+        st.caption(f"Models: {summ.get('model')} (Reader, Scientist, Reporter) · "
+                   f"{summ.get('engineer_model', summ.get('model'))} (Engineer)")
+
+        if summ["attempts"]:
+            fig = go.Figure()
+            xs = [a["n"] for a in summ["attempts"]]
+            fig.add_trace(go.Scatter(x=xs, y=[a["train_f1"] for a in summ["attempts"]], mode="lines+markers",
+                                     name="overall F1"))
+            for cat in CATEGORY_LABEL:
+                ys = [a["per_category"][cat]["found"] / max(1, a["per_category"][cat]["labelled"]) for a in summ["attempts"]]
+                fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines+markers", name=f"{CATEGORY_LABEL[cat]} recall",
+                                         line={"dash": "dot"}))
+            fig.update_layout(height=320, title="Learning curve (training systems)", xaxis_title="submission",
+                              yaxis_range=[0, 1.05], margin={"t": 40, "b": 10}, legend={"orientation": "h"})
+            st.plotly_chart(fig, width="stretch")
+
+        if held:
+            st.dataframe(pd.DataFrame([{
+                "problem": CATEGORY_LABEL[c],
+                "agent: found / labelled": f"{held['per_category'][c]['found']} / {held['per_category'][c]['labelled']}",
+                "agent: false alarms": held["per_category"][c]["false_alarms"],
+                "agent: onset error (min)": held["per_category"][c]["median_onset_error_min"],
+                "baseline: found / labelled": f"{base['held']['per_category'][c]['found']} / {base['held']['per_category'][c]['labelled']}",
+            } for c in CATEGORY_LABEL]), hide_index=True, width="stretch")
+            st.caption("Held-out systems only: equipment the agents never saw.")
+
+        left, right = st.columns(2)
+        with left:
+            st.subheader("Rules Nemotron wrote")
+            if (run_dir / "detector.py").exists():
+                st.code((run_dir / "detector.py").read_text(), language="python")
+        with right:
+            st.subheader("Model card")
+            st.markdown((run_dir / "report.md").read_text())
+        with st.expander("Domain brief (Reader)"):
+            st.markdown((run_dir / "brief.md").read_text())
+        with st.expander("Full agent trace"):
+            for step in json.loads((run_dir / "trace.json").read_text()):
+                label = f"[{step['t']}s] {step['agent']} · {step['type']}" + (f" · {step['name']}" if step.get("name") else "")
+                st.markdown(f"**{label}**")
+                body, lang = step["content"], None
+                if step["type"] == "tool_call" and step.get("name") in ("run_python", "submit_detector"):
+                    body, lang = json.loads(body).get("code", body), "python"
+                st.code(body[:1500], language=lang)
+        st.caption("Use these rules in the console: sidebar → Detector → Nemotron-discovered.")
 
 # --- export -----------------------------------------------------------------------
 
