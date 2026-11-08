@@ -21,3 +21,6 @@ data/
 .DS_Store
 .vscode/
 .idea/
+
+# Discovery scratch (phase outputs for resuming a run)
+runs/_work/
